@@ -1,0 +1,37 @@
+<mujoco>
+    #object를 놓을 world 생성
+  <worldbody>
+    #deploy light pos="x y z", 
+    #dir : direction of light
+    <light pos="0 0 3" dir="0 0 -1"/>
+    #geom : type : box, sphere, capsule, cylinder, plane
+    #size : "x y grid"
+    #rgva : "r g b a", a: 투명도
+    #바닥 생성
+    <geom type="plane" size="3 3 0.1" rgba="0.8 0.8 0.8 1"/>
+
+    #body : pos : "x y z" 시작점의 좌표
+    #joint : name : 관절 이름, type : 관절 종류, axis : 회전축, damping : 감쇠계수(저항)
+    <body pos="0 0 1.5">
+      <joint name="shoulder" type="hinge" axis="0 1 0" damping="0.5"/>
+      <geom type="capsule" fromto="0 0 0 0 0 -0.5" size="0.04" rgba="0.2 0.5 1 1"/>
+
+
+      #capsule : fromto = "a b c d e f" 앞의 세개의 좌표가 시작이고 뒤의 세개의 좌표가 끝점,
+      #size : 반지름
+      #그리고 상위 body 안에 또 body를 넣어주면 관절이 연결된 구조가 됨
+      <body pos="0 0 -0.5">
+        <joint name="elbow" type="hinge" axis="0 1 0" damping="0.5"/>
+        <geom type="capsule" fromto="0 0 0 0 0 -0.5" size="0.04" rgba="1 0.5 0.2 1"/>
+      </body>
+    </body>
+  </worldbody>
+
+  #관절 모터
+  #gear : 모터의 힘을 관절에 전달하는 비율
+  #ctrlrange : 모터의 제어 범위(슬라이더로 줄 수 있는 값의 범위)
+  <actuator>
+    <motor name = "shoulder_motor" joint="shoulder" gear="20" ctrlrange="-1 1"/>
+    <motor name = "elbow_motor" joint="elbow" gear="20" ctrlrange="-1 1"/>
+  </actuator>
+</mujoco>
