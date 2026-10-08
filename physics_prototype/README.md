@@ -73,6 +73,38 @@ scene-only videos are verified at 1.0x native time. Full regression passes
 (529 passed, one skipped), and Stage 1-5.2 preservation passes. RL has not started.
 See [Stage 5.3 evidence, timing, videos and limits](docs/verification/validated-foundation-stage5.3.md).
 
+### Interactive Stage 5.3 Playback
+
+From this authorized worktree, on a graphical desktop:
+
+```bash
+/home/yuchan/Desktop/project/boulder_prototype/.venv/bin/python scripts/view_ascent.py
+```
+
+This passive MuJoCo viewer opens **paused on the recorded climbing source pose**,
+not the legacy synthetic stance. It loads the certified native RH-up / LF-up /
+LH-up sequence from `outputs/ascent-stage5.3-final`, checks evidence/code/model
+hashes and exact move boundaries, and never steps physics or regenerates motion.
+Mouse rotation, zoom and pan use MuJoCo's normal camera controls.
+
+- `Space`: play/pause; `R` or `Home`: restart at the first climbing pose, paused.
+- `1`, `2`, `3`: 0.5x, 1x, 2x playback; arrows or `,` / `.`: step backward/forward one native timestamp.
+- `C`: toggle recorded contact markers. Blue connects follow saved hand equality activation; foot points and displayed loads are saved native observations.
+- `--profile longer`: the +5% limb geometry; `--dt .001`: the authoritative 1 ms recording.
+- `--autoplay`: start playing; `--check`: validate the saved recording without opening a window.
+
+Playback copies literal saved pose/velocity/control/equality state into an
+isolated display model/data pair and refreshes kinematics only. It does not
+interpolate poses, simulate mouse perturbations, or recompute native forces.
+At capture, the pre-activation sample remains exactly as recorded; activation
+appears on the first saved post-capture sample (within one native interval).
+Full integration vectors are checked at move boundaries; per-step warmstarts
+are not recorded, so this display stream is not a dynamics-restart checkpoint.
+Missing or mismatched evidence is an error, with no standing-pose fallback or
+automatic recapture. The source recordings are offline/ignored artifacts and
+must be present. A desktop display is required for the GUI; headless use is
+limited to `--check`.
+
 Run from the authorized worktree with the canonical project environment:
 
 ```bash
