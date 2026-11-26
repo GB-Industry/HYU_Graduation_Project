@@ -42,7 +42,7 @@ __init__.py
 
 scripts/view.py    마우스로 돌려 보는 MuJoCo 뷰어
                    python scripts/view.py
-                   python scripts/view.py --pose t --profile long_limbs
+                   python scripts/view.py --pose t --profile long_limbs (기존 T-Base pose)
                    python scripts/view.py --simulate     (물리 켜기)
 
 scripts/render.py  사진(PNG) 만들기 → renders/ 폴더 (Git 제외)
