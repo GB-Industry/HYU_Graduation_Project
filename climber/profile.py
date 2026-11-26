@@ -40,7 +40,12 @@ class BodyProfile:
     total_mass: float = 70.0     # kg  전체 몸무게. model.py가 부위별 비율로 나눠 줌
     rom_scale: float = 1.0       # joint range of motion multiplier  유연성: 모든 관절 가동범위에 곱함
     strength_scale: float = 1.0  # joint torque ceiling multiplier   근력: 모든 관절 최대 토크에 곱함
-    grip_capacity: float = 850.0  # N, max hand load before a grasp breaks (not enforced yet)  그립 한계 (아직 미적용)
+    grip_capacity: float = 850.0  # N  악력: 손 하나가 버틸 수 있는 최대 힘 (지치기 전, 손마다)
+    # 악력 피로 (contact.py가 매 스텝 적용)
+    grip_fatigue_halflife: float = 60.0  # s  악력 한계에 가깝게 매달리면, 최저치 위의 악력이 이 시간마다 절반으로
+                                         #    (가볍게 매달리면 하중/악력 비율만큼 느리게 지친다)
+    grip_recovery_time: float = 30.0     # s  손을 놓고 쉬면 이 시간이면 거의(95%) 회복
+    grip_min_fraction: float = 0.3       #    아무리 지쳐도 처음 악력의 이 비율 밑으로는 안 내려감
 
     def __post_init__(self) -> None:
         # 잘못된 값(음수 길이, 2m 넘는 팔 등)이 들어오면 바로 에러를 낸다
@@ -49,9 +54,12 @@ class BodyProfile:
             v = getattr(self, field)
             if not 0.05 <= v <= 2.0:
                 raise ValueError(f"{field}={v} is outside [0.05, 2.0] m")
-        for field in ("total_mass", "rom_scale", "strength_scale", "grip_capacity"):
+        for field in ("total_mass", "rom_scale", "strength_scale", "grip_capacity",
+                      "grip_fatigue_halflife", "grip_recovery_time"):
             if getattr(self, field) <= 0:
                 raise ValueError(f"{field} must be positive")
+        if not 0.0 <= self.grip_min_fraction <= 1.0:
+            raise ValueError("grip_min_fraction must be in [0, 1]")
 
     def with_limbs(self, scale: float, name: str | None = None) -> "BodyProfile":
         """Scale all four limb segments together (e.g. 0.95 = 5% shorter arms and legs).

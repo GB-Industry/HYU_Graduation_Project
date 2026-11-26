@@ -5,7 +5,7 @@
 
 [한국어 설명]
 창 없이 캐릭터 사진(PNG)을 만드는 스크립트. T자 자세 1장 + 벽 자세 2각도 = 3장을 가로로 붙여 저장.
-결과는 renders/ 폴더 (Git에 올라가지 않음).
+결과는 renders/ 폴더 (실험 기록과 함께 Git에 올림).
 """
 import argparse
 import pathlib
@@ -18,7 +18,7 @@ import mujoco
 import numpy as np
 from PIL import Image
 
-from climber import PRESETS, build_model, climb_pose, t_pose
+from climber import PRESETS, build_model, climb_pose, t_pose, test_wall
 
 
 def shoot(model, qpos, lookat, distance, azimuth, elevation, w=700, h=820):
@@ -42,9 +42,9 @@ def main() -> None:
     out = args.out or ROOT / "renders" / f"climber_{args.profile}.png"
     out.parent.mkdir(parents=True, exist_ok=True)
 
-    model = build_model(PRESETS[args.profile])
+    model = build_model(PRESETS[args.profile], test_wall())  # 175cm 몸에 맞춘 4홀드 테스트 벽
     stand = t_pose(model)
-    climb, info = climb_pose(model)
+    climb, info = climb_pose(model, feet=("LF", "RF"), hand_options=(("LH", "RH"),))
     wall_center = np.array([0.0, -0.2, 1.25])
     shots = [shoot(model, stand, np.array([0, -1.6, 0.95]), 2.7, 112, -12),
              shoot(model, climb, wall_center, 2.7, 65, -8),

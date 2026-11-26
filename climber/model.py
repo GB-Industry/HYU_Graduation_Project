@@ -5,12 +5,13 @@ primitives: segment shapes carry mass and collide with the world; joint balls ar
 visual only. No meshes, so the model stays cheap to simulate.
 
 Joint layout, ranges and torque ceilings follow the first physics prototype
-(free root + 25 hinges): waist 3, each arm 5, each leg 6.
+(free root + 25 hinges), plus a forearm twist per arm so the palm can face a hold: waist 3, each arm 6, each leg 6 = 27.
 
 [한국어 설명]
 BodyProfile(신체 사양서)과 Wall(벽·홀드)을 받아 MuJoCo 모델(MJCF XML)을 만드는 생성기. 이 프로젝트의 핵심 파일.
 - 몸: 골반(자유 관절) → 허리 → 가슴 → 머리/팔, 골반 → 다리 의 트리 구조
-- 관절 25개, 관절마다 토크 모터 1개 (강화학습 정책은 ctrl 25개를 -1~1로 출력)
+- 관절 27개, 관절마다 토크 모터 1개 (강화학습 정책은 ctrl 27개를 -1~1로 출력)
+  (팀원 프로토타입 25개 + 손바닥을 홀드 쪽으로 돌리는 아래팔 회전 2개)
 - 보이는 도형이 그대로 질량을 갖고 벽·바닥과 충돌. 관절 볼(구)은 장식이라 질량·충돌 없음
 - 몸끼리는 충돌하지 않음 (자기 충돌 없음)
 - 손 그립: 손과 홀드를 붙이는 connect 제약을 꺼진 상태로 만들어 두고, 켜면 "잡기"
@@ -45,6 +46,7 @@ JOINTS = {
     "shoulder_roll": ("0 1 0", -80, 80, 2.0, 85),
     "shoulder_yaw": ("0 0 1", -80, 80, 2.0, 75),
     "elbow": ("1 0 0", 0, 145, 1.5, 65),
+    "forearm_twist": ("0 0 1", -85, 85, 1.0, 20),   # 아래팔 돌리기 (손바닥 엎기/뒤집기)
     "wrist": ("1 0 0", -60, 60, 1.0, 35),
     "hip_pitch": ("1 0 0", -110, 120, 3.0, 140),
     "hip_yaw": ("0 0 1", -45, 45, 3.0, 80),
@@ -72,11 +74,11 @@ def _f(v: float) -> str:
 
 
 def actuated_joints() -> list[str]:
-    """관절(=모터) 이름 25개를 모터 순서대로 돌려준다. data.ctrl[i]가 어느 관절인지 알 때 사용.
-    순서: 허리 3 → 왼팔 5 → 오른팔 5 → 왼다리 6 → 오른다리 6"""
+    """관절(=모터) 이름 27개를 모터 순서대로 돌려준다. data.ctrl[i]가 어느 관절인지 알 때 사용.
+    순서: 허리 3 → 왼팔 6 → 오른팔 6 → 왼다리 6 → 오른다리 6"""
     names = ["waist_yaw", "waist_pitch", "waist_roll"]
     for s in SIDES:
-        names += [f"{s}_{j}" for j in ("shoulder_pitch", "shoulder_roll", "shoulder_yaw", "elbow", "wrist")]
+        names += [f"{s}_{j}" for j in ("shoulder_pitch", "shoulder_roll", "shoulder_yaw", "elbow", "forearm_twist", "wrist")]
     for s in SIDES:
         names += [f"{s}_{j}" for j in ("hip_pitch", "hip_roll", "hip_yaw", "knee", "ankle_pitch", "ankle_roll")]
     return names
@@ -111,6 +113,7 @@ def _arm(side: str, p: BodyProfile, mass) -> str:
     """팔 하나: 위팔(어깨 관절 3) → 아래팔(팔꿈치 1) → 손(손목 1).
     각 body의 원점 = 관절 위치, 팔은 아래(-z) 방향으로 뻗는다. 손 끝의 site는 그립 기준점."""
     sx = p.shoulder_width / 2 * (-1 if side == "left" else 1)
+    palm = 1.0 if side == "left" else -1.0  # 손바닥 방향: 왼손은 +x(몸 안쪽), 오른손은 -x
     chest_h = 0.25 * p.torso_length / 0.55
     ua, fa = p.upper_arm_length, p.forearm_length
     j = lambda n: _joint(f"{side}_{n}", p)
@@ -120,14 +123,16 @@ def _arm(side: str, p: BodyProfile, mass) -> str:
             {_ball("0 0 0", 0.045)}
             {_seg("capsule", f'fromto="0 0 -0.05 0 0 {_f(-(ua - 0.05))}" size="0.036"', mass("upper_arm"))}
             <body name="{side}_forearm" pos="0 0 {_f(-ua)}">
-              {j("elbow")}
+              {j("elbow")}{j("forearm_twist")}
               {_ball("0 0 0", 0.033)}
               {_seg("capsule", f'fromto="0 0 -0.04 0 0 {_f(-(fa - 0.04))}" size="0.030"', mass("forearm"))}
               <body name="{side}_hand" pos="0 0 {_f(-fa)}">
                 {j("wrist")}
                 {_ball("0 0 0", 0.024)}
-                {_seg("ellipsoid", 'pos="0 0.004 -0.058" size="0.020 0.034 0.046"', mass("hand"))}
-                <site name="{side}_hand_site" pos="0 0 -0.06" size="0.02"/>
+                <!-- 손: 5mm 이내로 가까워지면 '닿음'으로 감지만 하고(margin), 실제로 미는 힘은 맞닿은 뒤부터(gap) -->
+                {_seg("ellipsoid", 'pos="0 0.004 -0.058" size="0.020 0.034 0.046" margin="0.005" gap="0.005"', mass("hand"))}
+                <!-- 손바닥: 팔을 내렸을 때 몸 안쪽을 향하는 넓적한 면. z축 = 손바닥이 향하는 방향 -->
+                <site name="{side}_palm" pos="{_f(0.020 * palm)} 0.004 -0.058" zaxis="{_f(palm)} 0 0" size="0.015"/>
               </body>
             </body>
           </body>'''
@@ -157,7 +162,8 @@ def _leg(side: str, p: BodyProfile, mass) -> str:
             <geom class="seg" type="box" pos="0 0.035 {_f(-(SOLE_DEPTH - 0.018))}" size="0.040 0.095 0.018" mass="{_f(mass("foot"))}" friction="1.8 0.05 0.005" rgba="0 0 0 0"/>
             <geom class="vis" type="ellipsoid" pos="0 0.04 {_f(-(SOLE_DEPTH - 0.024))}" size="0.040 0.100 0.024" rgba="{SKIN}"/>
             <geom class="vis" type="capsule" fromto="0 0 0 0 0.01 {_f(-(SOLE_DEPTH - 0.03))}" size="0.026" rgba="{SKIN}"/>
-            <site name="{side}_foot_site" pos="0 0.09 {_f(-SOLE_DEPTH)}" size="0.02"/>
+            <!-- 발바닥 중심. z축 = 발바닥이 향하는 방향(아래) -->
+            <site name="{side}_sole" pos="0 0.035 {_f(-SOLE_DEPTH)}" zaxis="0 0 -1" size="0.015"/>
           </body>
         </body>
       </body>'''
@@ -216,6 +222,15 @@ def _wall(w: Wall) -> str:
     return "\n    ".join(out)
 
 
+def _hold_info(w: Wall) -> str:
+    """홀드별 '버틸 수 있는 방향'을 모델 안에 저장 (contact.py가 읽는다): x y z 허용각도"""
+    rows = []
+    for h in w.holds:
+        dx, dy, dz = h.pull_dir
+        rows.append(f'<numeric name="hold_{escape(h.name)}_pull" data="{_f(dx)} {_f(dy)} {_f(dz)} {_f(h.pull_cone_deg)}"/>')
+    return "\n    ".join(rows)
+
+
 def _actuators(p: BodyProfile) -> str:
     """관절마다 토크 모터 1개. 실제 토크 = ctrl(-1~1) × gear(최대토크 × strength_scale)."""
     rows = []
@@ -226,16 +241,16 @@ def _actuators(p: BodyProfile) -> str:
 
 
 def _grasps(w: Wall) -> str:
-    """One inactive hand-to-hold weld point per (hand, hold); activate to 'grip'.
+    """One inactive hand-to-hold point link per (hand, hold); contact.py places and activates it.
 
-    (손 2개 × 홀드 수)만큼 '손-홀드 붙이기' 제약을 꺼진 상태로 만든다.
-    잡기: data.eq_active[model.equality("grasp_left_H3").id] = 1
-    주의: 손 기준점이 손 안쪽에 있어서 잡으면 손이 홀드를 약 1.4cm 파고든다 (개선 예정).
+    (손 2개 × 홀드 수)만큼 '손-홀드 고정점' 제약을 꺼진 상태로 만든다.
+    잡는 위치(앵커)는 고정이 아니라, contact.py가 실제로 닿은 접촉점으로 그때그때 설정한 뒤 켠다.
+    그래서 손이 홀드를 파고들지 않는다. 직접 켜지 말고 contact.ContactModel을 쓸 것.
     """
     rows = []
     for s in SIDES:
         for h in w.holds:
-            rows.append(f'<connect name="grasp_{s}_{h.name}" site1="{s}_hand_site" site2="hold_{h.name}_site" '
+            rows.append(f'<connect name="grasp_{s}_{h.name}" body1="{s}_hand" body2="hold_{h.name}" anchor="0 0 0" '
                         f'active="false" solref="0.004 1" solimp="0.99 0.99 0.001"/>')
     return "\n    ".join(rows)
 
@@ -247,6 +262,9 @@ def build_xml(profile: BodyProfile = BASELINE, wall: Wall | None = None) -> str:
     return f'''<mujoco model="mannequin_climber_{escape(profile.name)}">
   <compiler angle="degree" autolimits="true"/>
   <option timestep="0.002" gravity="0 0 -9.81" integrator="implicitfast"/>
+  <custom>
+    {_hold_info(wall)}
+  </custom>
   <visual>
     <global offwidth="1920" offheight="1080"/>
     <quality shadowsize="4096" numslices="40" numstacks="24"/>
