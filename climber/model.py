@@ -170,16 +170,24 @@ def _climber(p: BodyProfile) -> str:
     ts = p.torso_length / 0.55
     pelvis_h, abdomen_h, chest_h = 0.14 * ts, 0.16 * ts, 0.25 * ts
     hip_x, shoulder_x = p.hip_width / 2, p.shoulder_width / 2
+    # 몸통 세로 배치 (골반 원점 기준, m)
+    pelvis_half = 0.085 * ts                 # 골반 타원체 세로 반지름
+    pelvis_top = -0.01 + pelvis_half         # 골반 윗면 높이
+    waist_z = pelvis_h * 0.5                 # 허리 관절 위치 (골반 윗부분 안쪽)
+    abd_off = abdomen_h * 0.45               # 허리 관절 → 허리 마디 중심
+    abd_half = waist_z + abd_off - (pelvis_top - 0.01)  # 허리 마디 아랫면이 골반 윗면과 1cm 겹치도록
     arms = "".join(_arm(s, p, mass) for s in SIDES)
     legs = "".join(_leg(s, p, mass) for s in SIDES)
     return f'''
     <body name="pelvis" pos="0 -0.46 1.25" childclass="climber">
       <freejoint name="root"/>
-      {_seg("ellipsoid", f'pos="0 0 -0.01" size="{_f(hip_x * 0.78)} 0.085 0.085"', mass("pelvis"))}
-      <body name="abdomen" pos="0 0 {_f(pelvis_h * 0.5 + abdomen_h * 0.45)}">
+      {_seg("ellipsoid", f'pos="0 0 -0.01" size="{_f(hip_x * 0.78)} 0.085 {_f(pelvis_half)}"', mass("pelvis"))}
+      <!-- 허리 관절은 골반 윗부분(요추 아래쪽)에 있다. 허리 마디는 그 위에 얹혀 있어서
+           숙이거나 비틀어도 골반과 붙은 채로 꺾인다 -->
+      <body name="abdomen" pos="0 0 {_f(waist_z)}">
         {_joint("waist_yaw", p)}{_joint("waist_pitch", p)}{_joint("waist_roll", p)}
-        {_seg("ellipsoid", 'size="0.085 0.068 0.062"', mass("abdomen"))}
-        <body name="chest" pos="0 0 {_f(abdomen_h * 0.5 + chest_h * 0.45)}">
+        {_seg("ellipsoid", f'pos="0 0 {_f(abd_off)}" size="0.085 0.068 {_f(abd_half)}"', mass("abdomen"))}
+        <body name="chest" pos="0 0 {_f(abd_off + abdomen_h * 0.5 + chest_h * 0.45)}">
           {_seg("ellipsoid", f'size="{_f(shoulder_x * 0.6)} 0.085 {_f(0.15 * ts)}"', mass("chest"))}
           {_seg("ellipsoid", f'pos="0 0 {_f(0.075 * ts)}" size="{_f(shoulder_x * 0.81)} 0.075 0.060"', mass("yoke"))}
           <body name="head" pos="0 0 {_f(chest_h * 0.52)}">
