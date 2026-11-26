@@ -6,6 +6,15 @@ visual only. No meshes, so the model stays cheap to simulate.
 
 Joint layout, ranges and torque ceilings follow the first physics prototype
 (free root + 25 hinges): waist 3, each arm 5, each leg 6.
+
+[한국어 설명]
+BodyProfile(신체 사양서)과 Wall(벽·홀드)을 받아 MuJoCo 모델(MJCF XML)을 만드는 생성기. 이 프로젝트의 핵심 파일.
+- 몸: 골반(자유 관절) → 허리 → 가슴 → 머리/팔, 골반 → 다리 의 트리 구조
+- 관절 25개, 관절마다 토크 모터 1개 (강화학습 정책은 ctrl 25개를 -1~1로 출력)
+- 보이는 도형이 그대로 질량을 갖고 벽·바닥과 충돌. 관절 볼(구)은 장식이라 질량·충돌 없음
+- 몸끼리는 충돌하지 않음 (자기 충돌 없음)
+- 손 그립: 손과 홀드를 붙이는 connect 제약을 꺼진 상태로 만들어 두고, 켜면 "잡기"
+보통은 build_model(profile)만 호출하면 된다.
 """
 from __future__ import annotations
 
@@ -16,11 +25,17 @@ import mujoco
 from .profile import BASELINE, BodyProfile
 from .scene import Wall, default_wall
 
-SKIN = "0.98 0.74 0.50 1"
-JOINT_BALL = "0.94 0.65 0.41 1"
-HOLD_RGBA = "0.30 0.62 0.68 1"
+# 색상 (R G B 투명도)
+SKIN = "0.98 0.74 0.50 1"        # 몸: 연한 주황
+JOINT_BALL = "0.94 0.65 0.41 1"  # 관절 볼: 조금 더 진한 주황
+HOLD_RGBA = "0.30 0.62 0.68 1"   # 홀드: 청록
 SIDES = ("left", "right")
 
+# 관절 사양표. 이름: (회전축, 최소각°, 최대각°, 감쇠, 최대토크 N·m)
+#   회전축  : "1 0 0" = 좌우축(앞뒤로 숙이기/들기), "0 1 0" = 앞뒤축(옆으로 기울이기/벌리기), "0 0 1" = 세로축(비틀기)
+#   최소/최대각: 가동범위. 실제 적용값 = 이 값 × BodyProfile.rom_scale (유연성)
+#   감쇠    : 빨리 돌수록 생기는 저항 (덜렁거림 방지)
+#   최대토크 : 그 관절의 최대 힘 (근력). 실제 적용값 = 이 값 × BodyProfile.strength_scale
 # name: (axis, lo_deg, hi_deg, damping, max_torque_Nm)
 JOINTS = {
     "waist_yaw": ("0 0 1", -35, 35, 4.0, 90),
@@ -38,22 +53,27 @@ JOINTS = {
     "ankle_roll": ("0 1 0", -25, 25, 2.0, 40),
 }
 # hip roll is asymmetric so each leg abducts outward more than it crosses inward
+# 고관절 옆 벌림만 좌우 따로: 다리는 바깥으로 벌리는 범위가 안쪽으로 모으는 범위보다 넓다
 HIP_ROLL = {"left": ("0 1 0", -50, 60, 3.0, 110), "right": ("0 1 0", -60, 50, 3.0, 110)}
 
 # Fraction of total body mass per segment, de Leva (1996) adult male.
 # Trunk = upper (chest, split rib cage / shoulder yoke) + middle (abdomen) + lower (pelvis).
 # Limb entries are per side. Sums to 1.0.
+# 부위별 질량 비율 (실제 성인 남성 통계). 실제 질량 = 비율 × total_mass. 팔다리는 한쪽 기준.
 MASS_FRACTION = {"head": 0.0694, "chest": 0.1246, "yoke": 0.0350, "abdomen": 0.1633, "pelvis": 0.1117,
                  "upper_arm": 0.0271, "forearm": 0.0162, "hand": 0.0061,
                  "thigh": 0.1416, "shin": 0.0433, "foot": 0.0137}
-SOLE_DEPTH = 0.06  # ankle joint height above the sole, ~0.035 H
+SOLE_DEPTH = 0.06  # ankle joint height above the sole, ~0.035 H   발목 관절 ~ 발바닥 높이 (m)
 
 
 def _f(v: float) -> str:
+    """숫자를 XML에 넣기 좋은 짧은 문자열로 바꾼다."""
     return f"{v:.5g}"
 
 
 def actuated_joints() -> list[str]:
+    """관절(=모터) 이름 25개를 모터 순서대로 돌려준다. data.ctrl[i]가 어느 관절인지 알 때 사용.
+    순서: 허리 3 → 왼팔 5 → 오른팔 5 → 왼다리 6 → 오른다리 6"""
     names = ["waist_yaw", "waist_pitch", "waist_roll"]
     for s in SIDES:
         names += [f"{s}_{j}" for j in ("shoulder_pitch", "shoulder_roll", "shoulder_yaw", "elbow", "wrist")]
@@ -63,6 +83,7 @@ def actuated_joints() -> list[str]:
 
 
 def _joint_spec(name: str):
+    """"left_elbow" 같은 이름으로 위 사양표에서 해당 관절 사양을 찾는다."""
     side, _, base = name.partition("_")
     if base == "hip_roll":
         return HIP_ROLL[side]
@@ -70,22 +91,25 @@ def _joint_spec(name: str):
 
 
 def _joint(name: str, p: BodyProfile) -> str:
+    """관절 XML 한 줄. 가동범위에 rom_scale(유연성)을 곱해 넣는다."""
     axis, lo, hi, damping, _ = _joint_spec(name)
     lo, hi = lo * p.rom_scale, hi * p.rom_scale
     return f'<joint name="{name}" axis="{axis}" range="{_f(lo)} {_f(hi)}" damping="{_f(damping)}"/>'
 
 
 def _seg(kind: str, attrs: str, mass: float | None = None) -> str:
-    """A body segment: collides with the world and carries mass."""
+    """A body segment: collides with the world and carries mass.  물리 도형: 질량 O, 벽·바닥과 충돌 O"""
     return f'<geom class="seg" type="{kind}" {attrs} mass="{_f(mass)}"/>'
 
 
 def _ball(pos: str, r: float) -> str:
-    """A visual-only joint ball."""
+    """A visual-only joint ball.  관절 볼(장식): 질량 X, 충돌 X"""
     return f'<geom class="vis" type="sphere" pos="{pos}" size="{_f(r)}" rgba="{JOINT_BALL}"/>'
 
 
 def _arm(side: str, p: BodyProfile, mass) -> str:
+    """팔 하나: 위팔(어깨 관절 3) → 아래팔(팔꿈치 1) → 손(손목 1).
+    각 body의 원점 = 관절 위치, 팔은 아래(-z) 방향으로 뻗는다. 손 끝의 site는 그립 기준점."""
     sx = p.shoulder_width / 2 * (-1 if side == "left" else 1)
     chest_h = 0.25 * p.torso_length / 0.55
     ua, fa = p.upper_arm_length, p.forearm_length
@@ -110,6 +134,9 @@ def _arm(side: str, p: BodyProfile, mass) -> str:
 
 
 def _leg(side: str, p: BodyProfile, mass) -> str:
+    """다리 하나: 허벅지(고관절 3) → 정강이(무릎 1) → 발(발목 2).
+    발은 보이지 않는 상자(실제로 밟는 부분, 마찰 1.8) + 보이는 타원체(겉모습)로 나뉜다.
+    발목 관절 2개는 같은 점에 겹쳐 있다 (한 점에서 두 방향으로 도는 관절)."""
     hip_x = p.hip_width / 2
     hx = 0.85 * hip_x * (-1 if side == "left" else 1)
     pelvis_h = 0.14 * p.torso_length / 0.55
@@ -137,6 +164,8 @@ def _leg(side: str, p: BodyProfile, mass) -> str:
 
 
 def _climber(p: BodyProfile) -> str:
+    """몸 전체 조립. 골반에 freejoint(자유 관절, 모터 없음)가 있어 몸이 공중에서 자유롭게 움직인다.
+    허리 관절 3개는 골반-허리 사이 한 점에 겹쳐 있고, 가슴은 허리에 고정되어 따라 움직인다."""
     mass = lambda seg: MASS_FRACTION[seg] * p.total_mass
     ts = p.torso_length / 0.55
     pelvis_h, abdomen_h, chest_h = 0.14 * ts, 0.16 * ts, 0.25 * ts
@@ -163,6 +192,7 @@ def _climber(p: BodyProfile) -> str:
 
 
 def _wall(w: Wall) -> str:
+    """벽(큰 상자 1개)과 홀드(공)들. 홀드 표면 바깥쪽에 '잡는 점' site를 하나씩 둔다."""
     out = [f'<geom name="wall" type="box" pos="0 {_f(w.thickness / 2)} {_f(w.height / 2)}" '
            f'size="{_f(w.width / 2)} {_f(w.thickness / 2)} {_f(w.height / 2)}" '
            f'friction="{_f(w.friction)} 0.05 0.005" material="wallmat"/>']
@@ -179,6 +209,7 @@ def _wall(w: Wall) -> str:
 
 
 def _actuators(p: BodyProfile) -> str:
+    """관절마다 토크 모터 1개. 실제 토크 = ctrl(-1~1) × gear(최대토크 × strength_scale)."""
     rows = []
     for name in actuated_joints():
         gear = _joint_spec(name)[4] * p.strength_scale
@@ -187,7 +218,12 @@ def _actuators(p: BodyProfile) -> str:
 
 
 def _grasps(w: Wall) -> str:
-    """One inactive hand-to-hold weld point per (hand, hold); activate to 'grip'."""
+    """One inactive hand-to-hold weld point per (hand, hold); activate to 'grip'.
+
+    (손 2개 × 홀드 수)만큼 '손-홀드 붙이기' 제약을 꺼진 상태로 만든다.
+    잡기: data.eq_active[model.equality("grasp_left_H3").id] = 1
+    주의: 손 기준점이 손 안쪽에 있어서 잡으면 손이 홀드를 약 1.4cm 파고든다 (개선 예정).
+    """
     rows = []
     for s in SIDES:
         for h in w.holds:
@@ -197,6 +233,8 @@ def _grasps(w: Wall) -> str:
 
 
 def build_xml(profile: BodyProfile = BASELINE, wall: Wall | None = None) -> str:
+    """전체 MJCF XML 문자열을 만든다: 시뮬레이션 설정(0.002초 간격, 중력) + 조명/재질 + 벽 + 몸 + 모터 + 그립.
+    충돌 규칙: 몸(contype 2, conaffinity 1) vs 세상(1, 1) → 몸-세상은 충돌, 몸-몸은 충돌 안 함."""
     wall = wall or default_wall()
     return f'''<mujoco model="mannequin_climber_{escape(profile.name)}">
   <compiler angle="degree" autolimits="true"/>
@@ -247,4 +285,5 @@ def build_xml(profile: BodyProfile = BASELINE, wall: Wall | None = None) -> str:
 
 
 def build_model(profile: BodyProfile = BASELINE, wall: Wall | None = None) -> mujoco.MjModel:
+    """build_xml()로 만든 XML을 바로 MuJoCo 모델 객체로 바꿔 준다. 보통은 이것만 쓰면 된다."""
     return mujoco.MjModel.from_xml_string(build_xml(profile, wall))

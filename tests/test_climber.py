@@ -1,4 +1,15 @@
-"""Sanity checks for the mannequin climber.  Run: python -m unittest discover tests"""
+"""Sanity checks for the mannequin climber.  Run: python -m unittest discover tests
+
+[한국어 설명]
+기준 에이전트가 약속한 사양을 지키는지 자동으로 확인하는 테스트 10개.
+에이전트 코드를 고친 뒤에는 꼭 실행해서 전부 OK인지 확인할 것.
+  - 모델 생성: 세 체형 모두 관절·모터 25개
+  - 질량: 전체 70kg, total_mass를 바꾸면 그대로 따라감
+  - 체형: 키 1.75m, 팔 너비 ≈ 키, 고관절 높이 ≈ 키의 53%
+  - 충돌: 관절 볼은 충돌 없음, 몸끼리 충돌 없음
+  - 자세: 벽 자세에서 손발이 홀드에 닿고 몸통이 벽에서 40cm 이내, T자 자세는 바닥에 섬
+  - 물리: 손을 잡고 힘 0으로 2초 매달려도 시뮬레이션이 터지지 않음
+"""
 import pathlib
 import sys
 import unittest

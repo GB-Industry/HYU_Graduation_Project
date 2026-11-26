@@ -1,4 +1,9 @@
-"""Measure a built climber: standing dimensions and per-segment masses."""
+"""Measure a built climber: standing dimensions and per-segment masses.
+
+[한국어 설명]
+만들어진 캐릭터를 실제로 T자 자세로 세워 놓고 키·팔 너비·질량 등을 재는 파일.
+실험 결과를 정리할 때 "이 체형은 키 몇 cm" 같은 수치의 근거로 쓴다.
+"""
 from __future__ import annotations
 
 import mujoco
@@ -11,7 +16,11 @@ SEGMENTS = ("pelvis", "abdomen", "chest", "head", "left_upper_arm", "left_forear
 
 
 def body_stats(model: mujoco.MjModel) -> dict[str, float]:
-    """Standing height, joint heights, arm span (fingertip to fingertip) and total mass."""
+    """Standing height, joint heights, arm span (fingertip to fingertip) and total mass.
+
+    반환: height(발바닥~머리 꼭대기), shoulder_height, hip_joint_height,
+          arm_span(손끝~손끝), total_mass  (단위 m, kg)
+    """
     d = mujoco.MjData(model)
     d.qpos[:] = t_pose(model)
     mujoco.mj_forward(model, d)
@@ -37,5 +46,5 @@ def body_stats(model: mujoco.MjModel) -> dict[str, float]:
 
 
 def segment_masses(model: mujoco.MjModel) -> dict[str, float]:
-    """Mass of each body segment (limbs: left side; right side is identical)."""
+    """Mass of each body segment (limbs: left side; right side is identical).  부위별 질량 (kg)"""
     return {s: float(model.body_mass[model.body(s).id]) for s in SEGMENTS}

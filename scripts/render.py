@@ -2,6 +2,10 @@
 
     python scripts/render.py                          # -> renders/climber_baseline.png
     python scripts/render.py --profile short_limbs --out my.png
+
+[한국어 설명]
+창 없이 캐릭터 사진(PNG)을 만드는 스크립트. T자 자세 1장 + 벽 자세 2각도 = 3장을 가로로 붙여 저장.
+결과는 renders/ 폴더 (Git에 올라가지 않음).
 """
 import argparse
 import pathlib
@@ -18,6 +22,7 @@ from climber import PRESETS, build_model, climb_pose, t_pose
 
 
 def shoot(model, qpos, lookat, distance, azimuth, elevation, w=700, h=820):
+    """주어진 자세(qpos)를 카메라 위치(바라보는 점, 거리, 방위각, 고도각)에서 찍은 이미지 1장."""
     data = mujoco.MjData(model)
     data.qpos[:] = qpos
     mujoco.mj_forward(model, data)

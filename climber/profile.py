@@ -1,4 +1,14 @@
-"""Body profile: the physical traits that differ between climbers."""
+"""Body profile: the physical traits that differ between climbers.
+
+[한국어 설명]
+클라이머 한 명의 "신체 사양서"를 정의하는 파일.
+키·팔다리 길이·몸무게·유연성·근력·그립 같은, 실험에서 바꿔 볼 신체 조건이 전부 여기 있다.
+BodyProfile 값만 바꾸면 model.py가 그 체형에 맞는 캐릭터를 자동으로 다시 만든다.
+
+사용 예:
+    from dataclasses import replace
+    heavy = replace(BASELINE, name="heavy", total_mass=85.0)   # 몸무게만 85kg인 체형
+"""
 from __future__ import annotations
 
 from dataclasses import dataclass, replace
@@ -18,20 +28,22 @@ class BodyProfile:
     the distance between the two shoulder joints.
     """
 
-    name: str = "baseline"
-    torso_length: float = 0.645
-    shoulder_width: float = 0.40
-    hip_width: float = 0.22
-    upper_arm_length: float = 0.325
-    forearm_length: float = 0.255
-    thigh_length: float = 0.43
-    shin_length: float = 0.43
-    total_mass: float = 70.0     # kg
-    rom_scale: float = 1.0       # joint range of motion multiplier
-    strength_scale: float = 1.0  # joint torque ceiling multiplier
-    grip_capacity: float = 850.0  # N, max hand load before a grasp breaks (not enforced yet)
+    # 기본값 = 키 1.75m, 몸무게 70kg 성인 남성 (단위: m, kg)
+    name: str = "baseline"           # 체형 이름 (렌더 파일명 등에 쓰임)
+    torso_length: float = 0.645      # 몸통 길이: 고관절 높이 ~ 목 밑
+    shoulder_width: float = 0.40     # 양쪽 어깨 관절 사이 거리
+    hip_width: float = 0.22          # 골반 바깥 폭 (고관절은 이 값의 85% 지점)
+    upper_arm_length: float = 0.325  # 위팔 (어깨 ~ 팔꿈치)
+    forearm_length: float = 0.255    # 아래팔 (팔꿈치 ~ 손목)
+    thigh_length: float = 0.43       # 허벅지 (고관절 ~ 무릎)
+    shin_length: float = 0.43        # 정강이 (무릎 ~ 발목)
+    total_mass: float = 70.0     # kg  전체 몸무게. model.py가 부위별 비율로 나눠 줌
+    rom_scale: float = 1.0       # joint range of motion multiplier  유연성: 모든 관절 가동범위에 곱함
+    strength_scale: float = 1.0  # joint torque ceiling multiplier   근력: 모든 관절 최대 토크에 곱함
+    grip_capacity: float = 850.0  # N, max hand load before a grasp breaks (not enforced yet)  그립 한계 (아직 미적용)
 
     def __post_init__(self) -> None:
+        # 잘못된 값(음수 길이, 2m 넘는 팔 등)이 들어오면 바로 에러를 낸다
         for field in ("torso_length", "shoulder_width", "hip_width", "upper_arm_length",
                       "forearm_length", "thigh_length", "shin_length"):
             v = getattr(self, field)
@@ -42,7 +54,11 @@ class BodyProfile:
                 raise ValueError(f"{field} must be positive")
 
     def with_limbs(self, scale: float, name: str | None = None) -> "BodyProfile":
-        """Scale all four limb segments together (e.g. 0.95 = 5% shorter arms and legs)."""
+        """Scale all four limb segments together (e.g. 0.95 = 5% shorter arms and legs).
+
+        팔다리 4마디(위팔·아래팔·허벅지·정강이) 길이에만 scale을 곱한 새 체형을 만든다.
+        몸통·머리·폭·몸무게·근력·유연성은 그대로.
+        """
         return replace(self, name=name or f"{self.name}_limbs{scale:g}",
                        upper_arm_length=self.upper_arm_length * scale,
                        forearm_length=self.forearm_length * scale,
@@ -58,6 +74,10 @@ class BodyProfile:
         return self.thigh_length + self.shin_length
 
 
+# 미리 만들어 둔 체형 (견본). 실제 실험 설계는 팔만/다리만 따로 바꾸는 것을 권장.
+#   baseline    : 기본 175cm / 70kg
+#   short_limbs : 팔다리 -5% (키 약 1.71m)
+#   long_limbs  : 팔다리 +5% (키 약 1.79m)
 BASELINE = BodyProfile()
 SHORT_LIMBS = BASELINE.with_limbs(0.95, "short_limbs")
 LONG_LIMBS = BASELINE.with_limbs(1.05, "long_limbs")
